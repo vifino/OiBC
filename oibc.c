@@ -31,6 +31,7 @@
 #include <libusb-1.0/libusb.h>
 #include <pthread.h>
 #include <readline/readline.h>
+#include <readline/history.h>
 #include <errno.h>
 #include <getopt.h>
 
@@ -48,35 +49,34 @@ static int sendFile(char *commandBuffer);
 struct libusb_device_handle* dev_handle;
 
 struct libusb_device_handle* open_device(int devid) {
-        int configuration = 0;
-        struct libusb_device_handle* handle = NULL;
-        
-        libusb_init(NULL);
-        handle = libusb_open_device_with_vid_pid(NULL, USB_APPLE_ID, devid);
-        if (handle == NULL) {
-                printf("open_device: unable to connect to device.\n");
-                return NULL;
-        }
-                
-        if (libusb_claim_interface(handle, 0) < 0) {
-                printf("open_device: error claiming interface.");
-                return NULL;
-        }
+	struct libusb_device_handle* handle = NULL;
 
-        return handle;
+	libusb_init(NULL);
+	handle = libusb_open_device_with_vid_pid(NULL, USB_APPLE_ID, devid);
+	if (handle == NULL) {
+		printf("open_device: unable to connect to device.\n");
+		return NULL;
+	}
+
+	if (libusb_claim_interface(handle, 0) < 0) {
+		printf("open_device: error claiming interface.");
+		return NULL;
+	}
+
+	return handle;
 }
 
 int close_device(struct libusb_device_handle* handle) {
-        if (handle == NULL) {
-                printf("close_device: device has not been initialized yet.\n");
-                return -1;
-        }
-        
-        libusb_release_interface(handle, 0);
-        libusb_release_interface(handle, 1);
-        libusb_close(handle);
-        libusb_exit(NULL);
-        return 0;
+	if (handle == NULL) {
+		printf("close_device: device has not been initialized yet.\n");
+		return -1;
+	}
+
+	libusb_release_interface(handle, 0);
+	libusb_release_interface(handle, 1);
+	libusb_close(handle);
+	libusb_exit(NULL);
+	return 0;
 }
 
 FILE* outputFile = NULL;
@@ -107,17 +107,14 @@ void* doOutput(void* threadid)
 	int err;
 	static char buffer[513];
 
-	while(1)
-	{
-		err = libusb_bulk_transfer(dev_handle, RECV_EP, buffer, sizeof(buffer)-1, &ret, 1000);
-		if(ret >= 0 && err == 0)
-		{
+	while(1) {
+		err = libusb_bulk_transfer(dev_handle, RECV_EP, (unsigned char*) buffer, sizeof(buffer)-1, &ret, 1000);
+		if(ret >= 0 && err == 0) {
 			buffer[ret] = 0;
 
 			char *ptr = buffer;
-			printf("%s",buffer);
-			if(currReadAmt > 0)
-			{
+			printf("%s", buffer);
+			if(currReadAmt > 0) {
 				int amt = currReadAmt;
 				if(ret < amt)
 					amt = ret;
@@ -128,40 +125,34 @@ void* doOutput(void* threadid)
 				currReadAmt -= amt;
 				ptr += amt;
 
-				if(currReadAmt == 0)
-				{
+				if(currReadAmt == 0) {
 					fclose(outputFile);
 					outputFile = NULL;
 				}
 			}
 
 			char *p2 = strstr(ptr, FILE_START_MAGIC);
-			if(p2)
-			{
+			if(p2) {
 				*p2 = 0;
 				printf("%s", ptr);
 
 				p2 += strlen(FILE_START_MAGIC);
 
 				char *p3 = strchr(p2, '\n');
-				if(!p3)
-				{
+				if(!p3) {
 					fprintf(stderr, "Failed to read file part, no newline.\n");
 					continue;
 				}
-				else
-				{
+				else {
 					*p3 = 0;
 					p3++;
 
 					int loc;
 					int size;
 
-					if(sscanf(p2, "%d %d", &loc, &size) > 0)
-					{
+					if(sscanf(p2, "%d %d", &loc, &size) > 0) {
 						int buffLeft = ret - (p3 - buffer) - 1;
-						if(buffLeft - size < 0)
-						{
+						if(buffLeft - size < 0) {
 							currReadAmt = size - buffLeft;
 							size = buffLeft;
 						}
@@ -172,16 +163,7 @@ void* doOutput(void* threadid)
 					}
 				}
 			}
-		}
-		else if(err == 0) {
-			//no data, no error, do nothing
-		}
-		else if(err == LIBUSB_ERROR_TIMEOUT)
-		{
-			//timeout
-		}
-		else
-		{
+		} else if (err != 0 && err != LIBUSB_ERROR_TIMEOUT) {
 			fprintf(stderr, "Failed to read: %s\n", strerror(-err));
 			break;
 		}
@@ -195,24 +177,22 @@ void sendBuffer(char* buffer, size_t size) {
 
 	int ret = 0;
 
-	if(size == 0)
-		libusb_bulk_transfer(dev_handle, SEND_EP, buffer, size, &ret, 1000);
-	else
-	{
-		while(size > USB_BYTES_AT_A_TIME)
-		{
-			libusb_bulk_transfer(dev_handle, SEND_EP, buffer, USB_BYTES_AT_A_TIME, &ret, 1000);
-			if(ret >= 0)
-			{
+	if(size == 0) {
+		libusb_bulk_transfer(dev_handle, SEND_EP, (unsigned char*) buffer, size, &ret, 1000);
+	} else {
+		while(size > USB_BYTES_AT_A_TIME)	{
+			libusb_bulk_transfer(dev_handle, SEND_EP, (unsigned char*) buffer, USB_BYTES_AT_A_TIME, &ret, 1000);
+			if(ret >= 0) {
 				buffer += ret;
 				size -= ret;
 			}
-			else
+			else {
 				break;
+			}
 		}
 
 		if(size > 0 && ret >= 0)
-			libusb_bulk_transfer(dev_handle, SEND_EP, buffer, size, &ret, 1000);
+			libusb_bulk_transfer(dev_handle, SEND_EP, (unsigned char*) buffer, size, &ret, 1000);
 	}
 
 	if(ret < 0)
@@ -221,7 +201,6 @@ void sendBuffer(char* buffer, size_t size) {
 
 void* doInput(void* threadid) {
 	char* commandBuffer = NULL;
-	char toSendBuffer[USB_BYTES_AT_A_TIME];
 
 	rl_basic_word_break_characters = " \t\n\"\\'`@$><=;|&{(~!:";
 	rl_completion_append_character = '\0';
@@ -242,33 +221,30 @@ void* doInput(void* threadid) {
 			break;
 
 		int len = strlen(commandBuffer);
-		if(commandBuffer[0] == '!')
-		{
+		if(commandBuffer[0] == '!') {
 			if(sendFile(commandBuffer+1))
 				continue;
 		}
-		else if(commandBuffer[0] == '~')
-		{
-            if (getFile(commandBuffer+1))
-                continue;
-        }
-		/*else if (strcmp(commandBuffer,"install") == 0)
-		{
-            oibc_log("Backing up your NOR to current directory as norbackup.dump\n");
+		else if(commandBuffer[0] == '~') {
+			if (getFile(commandBuffer+1))
+				continue;
 
-            sprintf(toSendBuffer, "nor_read 0x09000000 0x0 1048576\n");
-			sendBuffer(toSendBuffer, strlen(toSendBuffer));
+			/*} else if (strcmp(commandBuffer,"install") == 0)
+				{
+				oibc_log("Backing up your NOR to current directory as norbackup.dump\n");
 
-			oibc_log("Fetching NOR backup.\n");
-			sprintf(toSendBuffer, "norbackup.dump:1048576");
-			getFile(toSendBuffer);
+				sprintf(toSendBuffer, "nor_read 0x09000000 0x0 1048576\n");
+				sendBuffer(toSendBuffer, strlen(toSendBuffer));
 
-			oibc_log("NOR backed up, starting installation\n");
-			sprintf(toSendBuffer,"install\n");
-			sendBuffer(toSendBuffer, strlen(toSendBuffer));
-		}*/ // nickp666: This is fucked up, nor_read is deliberately not registered as a command at the moment, and until I speak to ricky, I dont know why.
-		else
-		{
+				oibc_log("Fetching NOR backup.\n");
+				sprintf(toSendBuffer, "norbackup.dump:1048576");
+				getFile(toSendBuffer);
+
+				oibc_log("NOR backed up, starting installation\n");
+				sprintf(toSendBuffer,"install\n");
+				sendBuffer(toSendBuffer, strlen(toSendBuffer));
+				}*/ // nickp666: This is fucked up, nor_read is deliberately not registered as a command at the moment, and until I speak to ricky, I dont know why.
+		} else {
 			commandBuffer[len] = '\n';
 			sendBuffer(commandBuffer, len + 1);
 		}
@@ -281,15 +257,14 @@ void* doInput(void* threadid) {
 
 int sendFile(char *commandBuffer)
 {
-    char toSendBuffer[USB_BYTES_AT_A_TIME];
+	char toSendBuffer[USB_BYTES_AT_A_TIME];
 	char* atLoc = strchr(commandBuffer, '@');
 
 	if(atLoc != NULL)
 		*atLoc = '\0';
 
 	FILE* file = fopen(commandBuffer, "rb");
-	if(!file)
-	{
+	if(!file) {
 		oibc_log("file not found: %s\n", commandBuffer);
 		return 1;
 	}
@@ -301,11 +276,12 @@ int sendFile(char *commandBuffer)
 	fread(fileBuffer, 1, len, file);
 	fclose(file);
 
-	if(atLoc != NULL)
+	if(atLoc != NULL) {
 		sprintf(toSendBuffer, "sendfile %s %zu\n", atLoc + 1, len);
-	else
+	} else {
 		sprintf(toSendBuffer, "sendfile 0x09000000 %zu\n", len);
-	
+	}
+
 	fprintf(stderr, "File length %zu.\n", len);
 
 	sendBuffer(toSendBuffer, strlen(toSendBuffer));
@@ -317,64 +293,63 @@ int sendFile(char *commandBuffer)
 
 int getFile(char *commandBuffer)
 {
-    char toSendBuffer[USB_BYTES_AT_A_TIME];
-    char* sizeLoc = strchr(commandBuffer, ':');
-    
-    if(sizeLoc == NULL) {
-        oibc_log("must specify length to read\n");
-        return 1;
-    }
+	char toSendBuffer[USB_BYTES_AT_A_TIME];
+	char* sizeLoc = strchr(commandBuffer, ':');
 
-    *sizeLoc = '\0';
-    sizeLoc++;
-    
-    int toRead;
-    sscanf(sizeLoc, "%i", &toRead);
-    
-    char* atLoc = strchr(commandBuffer, '@');
-    
-    if(atLoc != NULL)
-        *atLoc = '\0';
-    
-    FILE* file = fopen(commandBuffer, "wb");
-    if(!file) {
-        oibc_log("cannot open file: %s\n", commandBuffer);
-        return 1;
-    }
-    
-    if(atLoc != NULL) {
-        sprintf(toSendBuffer, "recvfile %s %d\n", atLoc + 1, toRead);
-    } else {
-        sprintf(toSendBuffer, "recvfile 0x09000000 %d\n", toRead);
-    }
-    
-    sendBuffer(toSendBuffer, strlen(toSendBuffer));
-    outputFile = file;
-    
-    return 0;
+	if(sizeLoc == NULL) {
+		oibc_log("must specify length to read\n");
+		return 1;
+	}
+
+	*sizeLoc = '\0';
+	sizeLoc++;
+
+	int toRead;
+	sscanf(sizeLoc, "%i", &toRead);
+
+	char* atLoc = strchr(commandBuffer, '@');
+
+	if(atLoc != NULL)
+		*atLoc = '\0';
+
+	FILE* file = fopen(commandBuffer, "wb");
+	if(!file) {
+		oibc_log("cannot open file: %s\n", commandBuffer);
+		return 1;
+	}
+
+	if(atLoc != NULL) {
+		sprintf(toSendBuffer, "recvfile %s %d\n", atLoc + 1, toRead);
+	} else {
+		sprintf(toSendBuffer, "recvfile 0x09000000 %d\n", toRead);
+	}
+
+	sendBuffer(toSendBuffer, strlen(toSendBuffer));
+	outputFile = file;
+
+	return 0;
 }
 
 int main(int argc, char* argv[]) {
-	static struct option program_options[] = {
-                {"silent",      no_argument,    NULL,   's'},
-        };
+	static struct option program_options[] =
+		{
+		 {"silent",      no_argument,    NULL,   's'}
+		};
 
-        while(1)
-        {
-                int option_index = 0;
-                int c = getopt_long(argc, argv, "s", program_options, &option_index);
-                if(c == -1)
-                        break;
-        
-                switch(c)
-                {
-                case 's':
-                        silent = 1;
-                        break;
-                };
-        }
-     
-        read_history(".oibc-history");
+	while(1) {
+		int option_index = 0;
+		int c = getopt_long(argc, argv, "s", program_options, &option_index);
+		if(c == -1)
+			break;
+
+		switch(c) {
+		case 's':
+			silent = 1;
+			break;
+		};
+	}
+
+	read_history(".oibc-history");
 
 	dev_handle = open_device(USB_OIB_CONSOLE);
 	if (dev_handle == NULL) {
@@ -383,26 +358,26 @@ int main(int argc, char* argv[]) {
 	}
 
 	pthread_t inputThread;
-        pthread_t outputThread;
+	pthread_t outputThread;
 
-        oibc_log("OiB client connected:\n");
+	oibc_log("OiB client connected:\n");
 	oibc_log("!<filename>[@<address>] to send a file, ~<filename>[@<address>]:<len> to receive a file\n");
-        oibc_log("---------------------------------------------------------------------------------------------------------\n");
+	oibc_log("---------------------------------------------------------------------------------------------------------\n");
 
-        pthread_create(&outputThread, NULL, doOutput, NULL);
-        pthread_create(&inputThread, NULL, doInput, NULL);
- 
-        pthread_mutex_lock(&exitLock);
-        pthread_cond_wait(&exitCond, &exitLock);
-        pthread_mutex_unlock(&exitLock);
+	pthread_create(&outputThread, NULL, doOutput, NULL);
+	pthread_create(&inputThread, NULL, doInput, NULL);
 
-        pthread_cancel(inputThread);
-        pthread_cancel(outputThread);
+	pthread_mutex_lock(&exitLock);
+	pthread_cond_wait(&exitCond, &exitLock);
+	pthread_mutex_unlock(&exitLock);
 
-        rl_deprep_terminal(); // If we cancel readline, we must call this to not fsck up the terminal.
-        fflush(stdin); // Prevent madness
+	pthread_cancel(inputThread);
+	pthread_cancel(outputThread);
+
+	rl_deprep_terminal(); // If we cancel readline, we must call this to not fsck up the terminal.
+	fflush(stdin); // Prevent madness
 
 	close_device(dev_handle);
-	
+
 	return 0;
 }
