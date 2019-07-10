@@ -1,25 +1,15 @@
 OIBC_OBJS = oibc.o
-LOADIBEC_OBJS = loadibec.c
 LIBRARIES = -lusb-1.0 -lpthread -lreadline
-LOADIBEC_LIBS = -lusb-1.0
-CFLAGS += -DHAVE_GETEUID
+CFLAGS += -DHAVE_GETEUID -Wall
 
 ifeq ($(DEBUG),YES)
         CFLAGS += -ggdb
 endif
 
-%.o:	%.c
-	$(CC) $(CFLAGS) -c $< -o $@
+all: oibc
 
-
-all:	oibc
-
-oibc:	$(OIBC_OBJS)
+oibc: $(OIBC_OBJS)
 	$(CC) $(CFLAGS) $(OIBC_OBJS) $(LIBRARIES) -o $@
 
-loadibec:   $(LOADIBEC_OBJS)
-	$(CC) $(CFLAGS) $(LOADIBEC_OBJS) $(LOADIBEC_LIBS) -o $@
-
 clean:
-	-rm *.o
-	-rm oibc
+	rm -f oibc *.o
